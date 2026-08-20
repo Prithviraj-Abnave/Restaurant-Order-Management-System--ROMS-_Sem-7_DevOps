@@ -1,0 +1,39 @@
+# ===== Build =====
+target/
+*.jar
+*.war
+*.class
+
+# ===== Maven =====
+.mvn/
+mvnw
+mvnw.cmd
+
+# ===== IDE — IntelliJ =====
+.idea/
+*.iml
+*.iws
+
+# ===== IDE — Eclipse =====
+.classpath
+.project
+.settings/
+
+# ===== IDE — VS Code =====
+.vscode/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== Logs =====
+*.log
+logs/
+
+# ===== Environment / Secrets =====
+.env
+*.env
+
+# ===== Docker =====
+docker-compose.override.yml
