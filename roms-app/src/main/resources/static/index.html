@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ROMS — Restaurant Order Management System. Manage menu items, orders, and kitchen operations.">
+    <title>ROMS — Menu Catalogue</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,700;1,700&display=swap" rel="stylesheet">
+
+    <!-- App CSS -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ── Navbar ────────────────────────────────────────────────── -->
+<nav class="navbar">
+    <div class="navbar-inner">
+        <a href="index.html" class="navbar-brand">
+            <div class="logo-icon">R</div>
+            <span>ROMS</span>
+            <span class="brand-sub">Order Management System · v1.0</span>
+        </a>
+        <ul class="navbar-links">
+            <li><a href="index.html" class="active">Menu</a></li>
+            <li><a href="orders.html">Orders</a></li>
+            <li><a href="alerts.html">Alerts</a></li>
+        </ul>
+        <button class="navbar-cta" onclick="openModal()">+ New Item</button>
+    </div>
+</nav>
+
+<!-- ── Page Content ─────────────────────────────────────────── -->
+<div class="container">
+    <div class="page-content">
+
+        <!-- Page Header -->
+        <div class="page-header">
+            <div>
+                <div class="badge-label"><span class="badge-dot"></span> ITEM CATALOGUE</div>
+                <h1>Menu <em>Catalogue</em></h1>
+                <p class="page-subtitle">Manage your restaurant's menu items — add, edit, search and filter.</p>
+            </div>
+        </div>
+
+        <!-- Stat Cards -->
+        <div class="stats-grid fade-in">
+            <div class="stat-card" style="border-top: 3px solid var(--primary)">
+                <div class="stat-label">Total Items</div>
+                <div class="stat-value" id="stat-total">—</div>
+                <div class="stat-sub">in catalogue</div>
+            </div>
+            <div class="stat-card" style="border-top: 3px solid var(--success)">
+                <div class="stat-label">Available</div>
+                <div class="stat-value" id="stat-available">—</div>
+                <div class="stat-sub">ready to order</div>
+            </div>
+            <div class="stat-card" style="border-top: 3px solid var(--danger)">
+                <div class="stat-label">Out of Stock</div>
+                <div class="stat-value" id="stat-unavailable">—</div>
+                <div class="stat-sub">needs attention</div>
+            </div>
+            <div class="stat-card" style="border-top: 3px solid var(--accent-amber)">
+                <div class="stat-label">Categories</div>
+                <div class="stat-value" id="stat-categories">4</div>
+                <div class="stat-sub">item types</div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filters-bar fade-in fade-in-delay-1">
+            <input type="text" id="searchInput" placeholder="Search items by name..." class="form-input" style="flex: 1; max-width: 320px;" onkeyup="filterItems()">
+            <div class="tab-pills">
+                <button class="tab-pill active" onclick="setCategory('', this)">All</button>
+                <button class="tab-pill" onclick="setCategory('STARTER', this)">Starter</button>
+                <button class="tab-pill" onclick="setCategory('MAIN_COURSE', this)">Main Course</button>
+                <button class="tab-pill" onclick="setCategory('DESSERT', this)">Dessert</button>
+                <button class="tab-pill" onclick="setCategory('BEVERAGE', this)">Beverage</button>
+            </div>
+        </div>
+
+        <!-- Data Table -->
+        <div class="table-card fade-in fade-in-delay-2">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Item Name</th>
+                        <th>Category</th>
+                        <th>Price (₹)</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="menuTableBody">
+                    <!-- Data populated via JavaScript -->
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+</div>
+
+<!-- ── Add/Edit Modal ───────────────────────────────────────── -->
+<div id="itemModal" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="modalTitle">Add Menu Item</h2>
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="itemForm" onsubmit="saveItem(event)">
+                <input type="hidden" id="itemId">
+
+                <div class="form-group">
+                    <label for="itemName">Item Name</label>
+                    <input type="text" id="itemName" required class="form-input" placeholder="e.g. Paneer Tikka">
+                </div>
+
+                <div class="form-group">
+                    <label for="itemCategory">Category</label>
+                    <select id="itemCategory" required class="form-select">
+                        <option value="STARTER">Starter</option>
+                        <option value="MAIN_COURSE">Main Course</option>
+                        <option value="DESSERT">Dessert</option>
+                        <option value="BEVERAGE">Beverage</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="itemPrice">Price (₹)</label>
+                    <input type="number" id="itemPrice" required min="1" step="0.01" class="form-input" placeholder="e.g. 250.00">
+                </div>
+
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="itemAvailable" checked>
+                    <label for="itemAvailable" style="text-transform: none; letter-spacing: 0; font-size: 0.88rem;">Available for ordering</label>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="btn btn-dark">Save Item</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="js/menu.js"></script>
+</body>
+</html>
