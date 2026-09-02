@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ROMS — Manage restaurant orders, track status, and update order lifecycle.">
+    <title>ROMS — Orders</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,700;1,700&display=swap" rel="stylesheet">
+
+    <!-- App CSS -->
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ── Navbar ────────────────────────────────────────────────── -->
+<nav class="navbar">
+    <div class="navbar-inner">
+        <a href="index.html" class="navbar-brand">
+            <div class="logo-icon">R</div>
+            <span>ROMS</span>
+            <span class="brand-sub">Restaurant Orders</span>
+        </a>
+        <ul class="navbar-links">
+            <li><a href="index.html">Menu</a></li>
+            <li><a href="orders.html" class="active">Orders</a></li>
+            <li><a href="alerts.html">Alerts</a></li>
+        </ul>
+        <button class="navbar-cta" onclick="openNewOrderModal()">+ New Order</button>
+    </div>
+</nav>
+
+<!-- ── Page Content ─────────────────────────────────────────── -->
+<div class="container">
+    <div class="page-content">
+
+        <!-- Page Header -->
+        <div class="page-header">
+            <div>
+                <div class="badge-label"><span class="badge-dot"></span> ORDER MANAGEMENT</div>
+                <h1>Active <em>Orders</em></h1>
+                <p class="page-subtitle">Track order lifecycle from placement through to serving.</p>
+            </div>
+        </div>
+
+        <!-- Stat Cards -->
+        <div class="stats-grid fade-in">
+            <div class="stat-card" style="border-top: 3px solid var(--status-placed)">
+                <div class="stat-label">Placed</div>
+                <div class="stat-value" id="stat-placed">—</div>
+                <div class="stat-sub">awaiting kitchen</div>
+            </div>
+            <div class="stat-card" style="border-top: 3px solid var(--status-preparing)">
+                <div class="stat-label">Preparing</div>
+                <div class="stat-value" id="stat-preparing">—</div>
+                <div class="stat-sub">in the kitchen</div>
+            </div>
+            <div class="stat-card" style="border-top: 3px solid var(--status-ready)">
+                <div class="stat-label">Ready</div>
+                <div class="stat-value" id="stat-ready">—</div>
+                <div class="stat-sub">awaiting service</div>
+            </div>
+            <div class="stat-card" style="border-top: 3px solid var(--status-served)">
+                <div class="stat-label">Served Today</div>
+                <div class="stat-value" id="stat-served">—</div>
+                <div class="stat-sub">completed</div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filters-bar fade-in fade-in-delay-1">
+            <div class="tab-pills">
+                <button class="tab-pill active" onclick="setStatusFilter('', this)">All</button>
+                <button class="tab-pill" onclick="setStatusFilter('PLACED', this)">Placed</button>
+                <button class="tab-pill" onclick="setStatusFilter('PREPARING', this)">Preparing</button>
+                <button class="tab-pill" onclick="setStatusFilter('READY', this)">Ready</button>
+                <button class="tab-pill" onclick="setStatusFilter('SERVED', this)">Served</button>
+                <button class="tab-pill" onclick="setStatusFilter('CLOSED', this)">Closed</button>
+            </div>
+            <input type="number" id="tableFilter" placeholder="Filter by table #" class="form-input" style="width: 160px;" onchange="fetchOrders()">
+        </div>
+
+        <!-- Orders Table -->
+        <div class="table-card fade-in fade-in-delay-2">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Order #</th>
+                        <th>Table</th>
+                        <th>Items</th>
+                        <th>Total (₹)</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="ordersTableBody">
+                    <!-- Data populated via JavaScript -->
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+</div>
+
+<!-- ── New Order Modal ──────────────────────────────────────── -->
+<div id="orderModal" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>New Order</h2>
+            <button class="modal-close" onclick="closeOrderModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="orderForm" onsubmit="createOrder(event)">
+                <div class="form-group">
+                    <label for="tableNumber">Table Number</label>
+                    <input type="number" id="tableNumber" required min="1" class="form-input" placeholder="e.g. 5">
+                </div>
+
+                <div class="form-group">
+                    <label>Order Items</label>
+                    <div id="orderItemsContainer" class="order-items-list">
+                        <!-- Dynamic item rows added here -->
+                    </div>
+                    <button type="button" class="add-item-btn" onclick="addItemRow()">+ Add Item</button>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" onclick="closeOrderModal()">Cancel</button>
+                    <button type="submit" class="btn btn-dark">Place Order</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="js/orders.js"></script>
+</body>
+</html>
