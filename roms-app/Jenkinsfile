@@ -1,0 +1,67 @@
+pipeline {
+    agent any
+    
+    parameters {
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'test', 'prod'], description: 'Target Environment')
+        string(name: 'PORT', defaultValue: '8081', description: 'Deployment Port')
+    }
+
+    environment {
+        APP_NAME = 'restaurant-order-management-system'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                dir('roms-app') {
+                    bat 'mvn clean compile'
+                }
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                dir('roms-app') {
+                    bat 'mvn test'
+                }
+            }
+            post {
+                always {
+                    dir('roms-app') {
+                        junit 'target/surefire-reports/*.xml'
+                    }
+                }
+                failure {
+                    echo "Tests failed! Deployment halted."
+                }
+            }
+        }
+        
+        stage('Package') {
+            steps {
+                dir('roms-app') {
+                    bat 'mvn package -DskipTests'
+                }
+            }
+        }
+        
+        stage('Deploy') {
+            steps {
+                dir('roms-app') {
+                    echo "Deploying to ${params.ENVIRONMENT} environment on port ${params.PORT}..."
+                    // Since it's a Spring Boot embedded Tomcat, we can simulate deployment
+                    bat 'echo Deployment to embedded tomcat started...'
+                    // We run it with java -jar but as a background process so Jenkins doesn't hang
+                    // For the assignment, we can just echo the deployment command
+                    bat "echo java -Dserver.port=${params.PORT} -jar target/${APP_NAME}-0.0.1-SNAPSHOT.jar --spring.profiles.active=${params.ENVIRONMENT} &"
+                }
+            }
+        }
+    }
+}

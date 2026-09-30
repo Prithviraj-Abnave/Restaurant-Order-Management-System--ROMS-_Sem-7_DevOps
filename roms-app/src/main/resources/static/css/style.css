@@ -578,6 +578,8 @@ h4 { font-size: 1rem; }
 
 .modal-body {
     padding: 1.5rem;
+    max-height: 65vh;
+    overflow-y: auto;
 }
 
 .form-group {

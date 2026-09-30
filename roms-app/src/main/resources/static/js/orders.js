@@ -159,7 +159,11 @@ function addItemRow() {
     row.className = 'order-item-row';
 
     const availableItems = menuItems.filter(i => i.available);
-    const options = availableItems.map(i => `<option value="${i.id}">${i.name} — ₹${parseFloat(i.price).toFixed(2)}</option>`).join('');
+    let options = availableItems.map(i => `<option value="${i.id}">${i.name} — ₹${parseFloat(i.price).toFixed(2)}</option>`).join('');
+
+    if (options === '') {
+        options = '<option value="" disabled selected>No items available. Please add to menu first.</option>';
+    }
 
     row.innerHTML = `
         <select class="form-select order-menu-item" required>${options}</select>
