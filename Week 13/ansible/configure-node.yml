@@ -1,0 +1,168 @@
+---
+# =============================================================================
+# Ansible Playbook — Configure ROMS Target Node
+# Week 13 — Configuration Management Script
+# Author: Prithviraj Abnave (23102B0035)
+#
+# This playbook identifies and installs all prerequisites for the ROMS
+# application on the target node:
+#   - System packages (Java 17, Docker, curl, wget, git)
+#   - OS user and group for the ROMS service
+#   - Application directory structure
+#   - Docker service enabled and started
+#   - Docker pull of the ROMS image
+#   - Systemd service unit for auto-start on reboot
+# =============================================================================
+
+- name: ROMS — Configure Target Node Prerequisites
+  hosts: roms_servers
+  become: true
+  gather_facts: true
+
+  vars:
+    roms_version:     "1.0.7"
+    roms_image:       "prithviraj-abnave/roms-app"
+    roms_port:        8081
+    roms_user:        "roms"
+    roms_group:       "roms"
+    roms_home:        "/opt/roms"
+    roms_logs:        "/var/log/roms"
+    java_package:     "java-17-openjdk"          # RHEL/CentOS; change for Ubuntu
+    docker_packages:
+      - docker
+      - docker-compose-plugin
+
+  tasks:
+
+    # ── 1. System Package Prerequisites ─────────────────────────────────────
+    - name: "1.1 Ensure Java 17 (JRE) is installed"
+      ansible.builtin.package:
+        name: "{{ java_package }}"
+        state: present
+      register: java_install
+
+    - name: "1.2 Verify Java version"
+      ansible.builtin.command: java -version
+      register: java_version_output
+      changed_when: false
+
+    - name: "1.3 Display Java version"
+      ansible.builtin.debug:
+        msg: "Java version: {{ java_version_output.stderr }}"
+
+    - name: "1.4 Ensure Docker is installed"
+      ansible.builtin.package:
+        name: "{{ docker_packages }}"
+        state: present
+
+    - name: "1.5 Ensure essential utilities are present (curl, wget, git)"
+      ansible.builtin.package:
+        name:
+          - curl
+          - wget
+          - git
+        state: present
+
+    # ── 2. Docker Service ────────────────────────────────────────────────────
+    - name: "2.1 Ensure Docker service is enabled and started"
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    # ── 3. OS User and Group ─────────────────────────────────────────────────
+    - name: "3.1 Create roms OS group"
+      ansible.builtin.group:
+        name: "{{ roms_group }}"
+        state: present
+
+    - name: "3.2 Create roms OS user (no login shell)"
+      ansible.builtin.user:
+        name: "{{ roms_user }}"
+        group: "{{ roms_group }}"
+        shell: /sbin/nologin
+        home: "{{ roms_home }}"
+        create_home: false
+        system: true
+        state: present
+
+    - name: "3.3 Add roms user to docker group"
+      ansible.builtin.user:
+        name: "{{ roms_user }}"
+        groups: docker
+        append: true
+
+    # ── 4. Directory Structure ───────────────────────────────────────────────
+    - name: "4.1 Create ROMS application directory"
+      ansible.builtin.file:
+        path: "{{ roms_home }}"
+        state: directory
+        owner: "{{ roms_user }}"
+        group: "{{ roms_group }}"
+        mode: "0755"
+
+    - name: "4.2 Create ROMS log directory"
+      ansible.builtin.file:
+        path: "{{ roms_logs }}"
+        state: directory
+        owner: "{{ roms_user }}"
+        group: "{{ roms_group }}"
+        mode: "0755"
+
+    # ── 5. Docker — Pull ROMS Image ──────────────────────────────────────────
+    - name: "5.1 Pull versioned ROMS Docker image"
+      community.docker.docker_image:
+        name: "{{ roms_image }}"
+        tag: "{{ roms_version }}"
+        source: pull
+      register: docker_pull_result
+
+    - name: "5.2 Display pulled image digest"
+      ansible.builtin.debug:
+        msg: "Pulled image: {{ roms_image }}:{{ roms_version }}"
+
+    # ── 6. Systemd Service Unit ──────────────────────────────────────────────
+    - name: "6.1 Deploy systemd service unit for ROMS"
+      ansible.builtin.template:
+        src: templates/roms.service.j2
+        dest: /etc/systemd/system/roms.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd
+
+    - name: "6.2 Enable ROMS systemd service"
+      ansible.builtin.systemd:
+        name: roms
+        enabled: true
+        daemon_reload: true
+
+    # ── 7. Firewall ──────────────────────────────────────────────────────────
+    - name: "7.1 Open ROMS port {{ roms_port }} in firewalld"
+      ansible.posix.firewalld:
+        port: "{{ roms_port }}/tcp"
+        permanent: true
+        state: enabled
+        immediate: true
+      ignore_errors: true          # firewalld may not be present in all envs
+
+    # ── 8. Health Verification ───────────────────────────────────────────────
+    - name: "8.1 Wait for ROMS application to become healthy"
+      ansible.builtin.uri:
+        url: "http://localhost:{{ roms_port }}/actuator/health"
+        status_code: 200
+        timeout: 60
+      register: health_result
+      retries: 6
+      delay: 10
+      until: health_result.status == 200
+
+    - name: "8.2 Report health status"
+      ansible.builtin.debug:
+        msg: "ROMS health check passed: {{ health_result.json }}"
+
+  # ── Handlers ─────────────────────────────────────────────────────────────
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true

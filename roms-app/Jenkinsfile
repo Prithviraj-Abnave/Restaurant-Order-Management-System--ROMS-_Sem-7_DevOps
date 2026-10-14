@@ -1,34 +1,48 @@
 pipeline {
     agent any
-    
+
     parameters {
         choice(name: 'ENVIRONMENT', choices: ['dev', 'test', 'prod'], description: 'Target Environment')
-        string(name: 'PORT', defaultValue: '8081', description: 'Deployment Port')
+        string(name: 'PORT', defaultValue: '8081', description: 'Host port to expose the application on')
+        string(name: 'IMAGE_TAG', defaultValue: 'latest', description: 'Docker image tag (e.g. 1.0.0, latest, or build number)')
     }
 
     environment {
-        APP_NAME = 'restaurant-order-management-system'
+        APP_NAME        = 'restaurant-order-management-system'
+        DOCKER_IMAGE    = "prithviraj-abnave/roms-app"
+        CONTAINER_NAME  = "roms-${params.ENVIRONMENT}"
+        // DockerHub credentials stored in Jenkins Credentials Store (ID: dockerhub-credentials)
+        DOCKERHUB_CREDS = credentials('dockerhub-credentials')
     }
 
     stages {
+
+        // ── Stage 1: Checkout ─────────────────────────────────────────────────
         stage('Checkout') {
             steps {
                 checkout scm
+                echo "✅ Source code checked out from SCM."
             }
         }
-        
+
+        // ── Stage 2: Build Application ────────────────────────────────────────
         stage('Build') {
             steps {
                 dir('roms-app') {
-                    bat 'mvn clean compile'
+                    bat 'mvn clean compile -B'
                 }
             }
+            post {
+                success { echo "✅ Maven compile successful." }
+                failure { echo "❌ Maven compile failed." }
+            }
         }
-        
+
+        // ── Stage 3: Run Tests ────────────────────────────────────────────────
         stage('Test') {
             steps {
                 dir('roms-app') {
-                    bat 'mvn test'
+                    bat 'mvn test -B'
                 }
             }
             post {
@@ -37,31 +51,119 @@ pipeline {
                         junit 'target/surefire-reports/*.xml'
                     }
                 }
-                failure {
-                    echo "Tests failed! Deployment halted."
-                }
+                success { echo "✅ All tests passed." }
+                failure { echo "❌ Tests failed! Halting pipeline — no Docker image will be built." }
             }
         }
-        
+
+        // ── Stage 4: Package (Maven JAR) ──────────────────────────────────────
         stage('Package') {
             steps {
                 dir('roms-app') {
-                    bat 'mvn package -DskipTests'
+                    bat 'mvn package -DskipTests -B'
                 }
+            }
+            post {
+                success { echo "✅ JAR packaged successfully." }
             }
         }
-        
-        stage('Deploy') {
+
+        // ── Stage 5: Build Docker Image ───────────────────────────────────────
+        stage('Docker Build') {
             steps {
                 dir('roms-app') {
-                    echo "Deploying to ${params.ENVIRONMENT} environment on port ${params.PORT}..."
-                    // Since it's a Spring Boot embedded Tomcat, we can simulate deployment
-                    bat 'echo Deployment to embedded tomcat started...'
-                    // We run it with java -jar but as a background process so Jenkins doesn't hang
-                    // For the assignment, we can just echo the deployment command
-                    bat "echo java -Dserver.port=${params.PORT} -jar target/${APP_NAME}-0.0.1-SNAPSHOT.jar --spring.profiles.active=${params.ENVIRONMENT} &"
+                    script {
+                        def buildNumber = env.BUILD_NUMBER
+                        def imageTag    = params.IMAGE_TAG == 'latest' ? "1.0.${buildNumber}" : params.IMAGE_TAG
+
+                        echo "🐳 Building Docker image: ${DOCKER_IMAGE}:${imageTag}"
+
+                        bat """
+                            docker build -t ${DOCKER_IMAGE}:${imageTag} .
+                            docker tag  ${DOCKER_IMAGE}:${imageTag} ${DOCKER_IMAGE}:latest
+                        """
+
+                        env.RESOLVED_TAG = imageTag
+                    }
                 }
             }
+            post {
+                success { echo "✅ Docker image built and tagged as ${env.RESOLVED_TAG} and latest." }
+                failure { echo "❌ Docker build failed." }
+            }
+        }
+
+        // ── Stage 6: Push to Docker Registry ─────────────────────────────────
+        stage('Docker Push') {
+            steps {
+                script {
+                    echo "📤 Pushing image to Docker Hub registry..."
+                    bat """
+                        docker login -u ${DOCKERHUB_CREDS_USR} -p ${DOCKERHUB_CREDS_PSW}
+                        docker push ${DOCKER_IMAGE}:${env.RESOLVED_TAG}
+                        docker push ${DOCKER_IMAGE}:latest
+                        docker logout
+                    """
+                }
+            }
+            post {
+                success { echo "✅ Image pushed to registry: ${DOCKER_IMAGE}:${env.RESOLVED_TAG}" }
+                failure { echo "❌ Docker push failed." }
+            }
+        }
+
+        // ── Stage 7: Deploy Fresh Container ──────────────────────────────────
+        stage('Deploy') {
+            steps {
+                script {
+                    echo "🚀 Deploying container '${CONTAINER_NAME}' on port ${params.PORT}..."
+
+                    bat """
+                        @echo off
+                        :: Stop and remove any existing container with the same name
+                        docker stop ${CONTAINER_NAME} 2>nul || echo Container not running, skipping stop.
+                        docker rm   ${CONTAINER_NAME} 2>nul || echo Container does not exist, skipping remove.
+
+                        :: Pull the freshly pushed image from the registry
+                        docker pull ${DOCKER_IMAGE}:${env.RESOLVED_TAG}
+
+                        :: Run the new container
+                        docker run -d ^
+                            --name ${CONTAINER_NAME} ^
+                            -p ${params.PORT}:8081 ^
+                            -e SPRING_PROFILES_ACTIVE=${params.ENVIRONMENT} ^
+                            --restart unless-stopped ^
+                            ${DOCKER_IMAGE}:${env.RESOLVED_TAG}
+
+                        :: Show the running container
+                        docker ps --filter "name=${CONTAINER_NAME}"
+                    """
+                }
+            }
+            post {
+                success { echo "✅ Container '${CONTAINER_NAME}' deployed and running on port ${params.PORT}." }
+                failure { echo "❌ Container deployment failed." }
+            }
+        }
+    }
+
+    // ── Global Post ───────────────────────────────────────────────────────────
+    post {
+        success {
+            echo """
+            ╔══════════════════════════════════════════════════╗
+            ║  ✅ ROMS CI/CD Pipeline Completed Successfully   ║
+            ║  Image : ${DOCKER_IMAGE}:${env.RESOLVED_TAG}
+            ║  Env   : ${params.ENVIRONMENT}
+            ║  Port  : ${params.PORT}
+            ╚══════════════════════════════════════════════════╝
+            """
+        }
+        failure {
+            echo "❌ Pipeline FAILED. Check the stage logs above for details."
+        }
+        always {
+            echo "Pipeline finished. Build #${env.BUILD_NUMBER}."
         }
     }
 }

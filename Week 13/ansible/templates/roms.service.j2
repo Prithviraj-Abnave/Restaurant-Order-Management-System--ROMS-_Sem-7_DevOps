@@ -1,0 +1,28 @@
+[Unit]
+Description=Restaurant Order Management System (ROMS) — Docker Container
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User={{ roms_user }}
+Group={{ roms_group }}
+Restart=always
+RestartSec=10
+
+ExecStartPre=-/usr/bin/docker stop roms-container
+ExecStartPre=-/usr/bin/docker rm   roms-container
+ExecStart=/usr/bin/docker run \
+    --name roms-container \
+    -p {{ roms_port }}:8081 \
+    -e SPRING_PROFILES_ACTIVE=prod \
+    --log-driver=journald \
+    {{ roms_image }}:{{ roms_version }}
+ExecStop=/usr/bin/docker stop roms-container
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=roms
+
+[Install]
+WantedBy=multi-user.target

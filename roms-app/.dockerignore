@@ -1,0 +1,30 @@
+# .dockerignore — exclude files from Docker build context
+# Reduces image build time and prevents leaking sensitive files
+
+# Maven build output (builder stage compiles from source)
+target/
+
+# IDE and editor files
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# Git metadata
+.git/
+.gitignore
+
+# CI/CD configuration (not needed inside the container)
+Jenkinsfile
+.github/
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Test sources (not needed in production image)
+src/test/
+
+# Documentation
+*.md

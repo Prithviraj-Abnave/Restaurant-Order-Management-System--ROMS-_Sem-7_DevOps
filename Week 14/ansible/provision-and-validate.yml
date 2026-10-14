@@ -1,0 +1,248 @@
+---
+# =============================================================================
+# Ansible Playbook — Provision Clean Target + Deploy ROMS + Validate
+# Week 14 — Automated Provisioning and Reliability Validation
+# Author: Prithviraj Abnave (23102B0035)
+#
+# Plays:
+#   1. Provision clean environment (OS, Docker, ROMS user, dirs, service)
+#   2. Deploy ROMS container
+#   3. Idempotency check (re-run should show 0 changes)
+#   4. Health check and smoke test
+#   5. Rollback to previous stable release on health failure
+# =============================================================================
+
+# ── Play 1: Provision Clean Target ────────────────────────────────────────────
+- name: "Play 1 — Provision Clean Target Environment"
+  hosts: roms_servers
+  become: true
+  gather_facts: true
+
+  vars:
+    roms_image:        "prithviraj-abnave/roms-app"
+    roms_version:      "1.0.7"
+    roms_prev_version: "1.0.6"            # Previous stable release for rollback
+    roms_port:         8081
+    roms_user:         "roms"
+    roms_group:        "roms"
+    roms_home:         "/opt/roms"
+    roms_logs:         "/var/log/roms"
+    health_url:        "http://localhost:{{ roms_port }}/actuator/health"
+
+  tasks:
+
+    - name: "1.1 Install Java 17 JRE"
+      ansible.builtin.package:
+        name: java-17-openjdk
+        state: present
+
+    - name: "1.2 Install Docker Engine"
+      ansible.builtin.package:
+        name:
+          - docker
+          - docker-compose-plugin
+        state: present
+
+    - name: "1.3 Start and enable Docker"
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: "1.4 Create roms group"
+      ansible.builtin.group:
+        name: "{{ roms_group }}"
+        state: present
+
+    - name: "1.5 Create roms user"
+      ansible.builtin.user:
+        name: "{{ roms_user }}"
+        group: "{{ roms_group }}"
+        groups: docker
+        append: true
+        shell: /sbin/nologin
+        home: "{{ roms_home }}"
+        create_home: false
+        system: true
+        state: present
+
+    - name: "1.6 Create application directories"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ roms_user }}"
+        group: "{{ roms_group }}"
+        mode: "0755"
+      loop:
+        - "{{ roms_home }}"
+        - "{{ roms_logs }}"
+
+    - name: "1.7 Record provisioning timestamp"
+      ansible.builtin.copy:
+        content: |
+          Provisioned by Ansible on {{ ansible_date_time.iso8601 }}
+          Target host: {{ ansible_hostname }} ({{ ansible_default_ipv4.address }})
+          Ansible version: {{ ansible_version.full }}
+          ROMS image: {{ roms_image }}:{{ roms_version }}
+        dest: "{{ roms_home }}/provision.log"
+        owner: "{{ roms_user }}"
+        group: "{{ roms_group }}"
+        mode: "0644"
+
+
+# ── Play 2: Deploy ROMS Application Container ─────────────────────────────────
+- name: "Play 2 — Deploy ROMS Docker Container"
+  hosts: roms_servers
+  become: true
+
+  vars:
+    roms_image:   "prithviraj-abnave/roms-app"
+    roms_version: "1.0.7"
+    roms_port:    8081
+
+  tasks:
+
+    - name: "2.1 Pull ROMS image {{ roms_version }}"
+      community.docker.docker_image:
+        name: "{{ roms_image }}"
+        tag: "{{ roms_version }}"
+        source: pull
+
+    - name: "2.2 Stop existing ROMS container if running"
+      community.docker.docker_container:
+        name: roms-container
+        state: stopped
+      ignore_errors: true
+
+    - name: "2.3 Remove existing ROMS container"
+      community.docker.docker_container:
+        name: roms-container
+        state: absent
+      ignore_errors: true
+
+    - name: "2.4 Start fresh ROMS container"
+      community.docker.docker_container:
+        name: roms-container
+        image: "{{ roms_image }}:{{ roms_version }}"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "{{ roms_port }}:8081"
+        env:
+          SPRING_PROFILES_ACTIVE: "prod"
+        log_driver: journald
+
+
+# ── Play 3: Health Check + Idempotency Validation ────────────────────────────
+- name: "Play 3 — Health Check and Idempotency Validation"
+  hosts: roms_servers
+  become: true
+
+  vars:
+    roms_port:         8081
+    roms_image:        "prithviraj-abnave/roms-app"
+    roms_version:      "1.0.7"
+    roms_prev_version: "1.0.6"
+    health_url:        "http://localhost:{{ roms_port }}/actuator/health"
+
+  tasks:
+
+    - name: "3.1 Wait for ROMS to be ready (up to 90 seconds)"
+      ansible.builtin.uri:
+        url: "{{ health_url }}"
+        status_code: 200
+      register: health_result
+      retries: 9
+      delay: 10
+      until: health_result.status == 200
+
+    - name: "3.2 Display health check result"
+      ansible.builtin.debug:
+        msg: "Health status: {{ health_result.json.status }} — ROMS is UP ✅"
+
+    - name: "3.3 Smoke test — verify menu API responds"
+      ansible.builtin.uri:
+        url: "http://localhost:{{ roms_port }}/api/menu"
+        status_code: 200
+      register: menu_api_result
+
+    - name: "3.4 Display menu API response code"
+      ansible.builtin.debug:
+        msg: "Menu API returned HTTP {{ menu_api_result.status }} — Smoke test passed ✅"
+
+    # Idempotency: Re-run container task — should show 'ok', not 'changed'
+    - name: "3.5 Idempotency check — re-ensure container is started (expects: ok)"
+      community.docker.docker_container:
+        name: roms-container
+        image: "{{ roms_image }}:{{ roms_version }}"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "{{ roms_port }}:8081"
+        env:
+          SPRING_PROFILES_ACTIVE: "prod"
+      register: idempotency_result
+
+    - name: "3.6 Assert idempotency — container should NOT have changed"
+      ansible.builtin.assert:
+        that:
+          - not idempotency_result.changed
+        success_msg: "✅ Idempotency confirmed — no changes on re-run."
+        fail_msg:    "❌ Idempotency FAILED — container was modified on re-run."
+
+
+# ── Play 4: Rollback to Previous Stable Release ───────────────────────────────
+- name: "Play 4 — Rollback / Recovery Demonstration"
+  hosts: roms_servers
+  become: true
+
+  vars:
+    roms_image:        "prithviraj-abnave/roms-app"
+    roms_prev_version: "1.0.6"
+    roms_port:         8081
+    health_url:        "http://localhost:{{ roms_port }}/actuator/health"
+
+  tasks:
+
+    - name: "4.1 Simulate failure — stop current container"
+      community.docker.docker_container:
+        name: roms-container
+        state: stopped
+
+    - name: "4.2 Remove failed container"
+      community.docker.docker_container:
+        name: roms-container
+        state: absent
+
+    - name: "4.3 Pull previous stable image {{ roms_prev_version }}"
+      community.docker.docker_image:
+        name: "{{ roms_image }}"
+        tag: "{{ roms_prev_version }}"
+        source: pull
+
+    - name: "4.4 Start rollback container using previous stable release"
+      community.docker.docker_container:
+        name: roms-container
+        image: "{{ roms_image }}:{{ roms_prev_version }}"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "{{ roms_port }}:8081"
+        env:
+          SPRING_PROFILES_ACTIVE: "prod"
+
+    - name: "4.5 Health check on rolled-back instance"
+      ansible.builtin.uri:
+        url: "{{ health_url }}"
+        status_code: 200
+      register: rollback_health
+      retries: 9
+      delay: 10
+      until: rollback_health.status == 200
+
+    - name: "4.6 Confirm rollback success"
+      ansible.builtin.debug:
+        msg: |
+          ✅ Rollback successful!
+          Running version: {{ roms_prev_version }}
+          Health status:   {{ rollback_health.json.status }}
