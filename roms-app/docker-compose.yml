@@ -1,0 +1,42 @@
+name: roms
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: roms-app:latest
+    ports:
+      - "${ROMS_PORT:-8081}:8081"
+    environment:
+      JAVA_TOOL_OPTIONS: "${JAVA_TOOL_OPTIONS:--Xms256m -Xmx512m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0}"
+      SPRING_PROFILES_ACTIVE: "${SPRING_PROFILES_ACTIVE:-default}"
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    healthcheck:
+      test:
+        - CMD
+        - java
+        - -cp
+        - /app/classes:/app/app.jar
+        - com.roms.ContainerHealthCheck
+      interval: 30s
+      timeout: 10s
+      start_period: 45s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+        reservations:
+          cpus: "0.25"
+          memory: 256M

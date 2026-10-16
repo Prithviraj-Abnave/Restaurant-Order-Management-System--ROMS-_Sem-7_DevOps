@@ -1,62 +1,35 @@
-# =============================================================================
-# Dockerfile — Restaurant Order Management System (ROMS)
-# Multi-stage build: Builder → Runtime
-# Week 11 — Docker Image and Container Lifecycle
-# Author: Prithviraj Abnave (23102B0035)
-# =============================================================================
+# syntax=docker/dockerfile:1
+# ROMS Spring Boot application using Docker Hardened Images
 
-# ── Stage 1: Builder ──────────────────────────────────────────────────────────
-FROM eclipse-temurin:17-jdk-alpine AS builder
+# Build stage: Java 17 JDK and build tooling
+FROM dhi.io/maven:3-jdk17-alpine3.24-dev AS builder
 
-LABEL maintainer="Prithviraj Abnave <prithviraj.abnave@roms.dev>"
-LABEL description="ROMS Spring Boot Application — Builder Stage"
+LABEL org.opencontainers.image.title="ROMS Spring Boot Application"
+LABEL org.opencontainers.image.description="Restaurant Order Management System build stage"
 
 WORKDIR /build
 
-# Copy Maven wrapper and POM first (layer caching for dependencies)
-COPY pom.xml .
-COPY mvnw .
-COPY .mvn .mvn
+# Cache Maven dependencies independently from application source changes
+COPY pom.xml ./
+RUN mvn dependency:go-offline -B
 
-# Download dependencies (cached if pom.xml unchanged)
-RUN ./mvnw dependency:go-offline -B
-
-# Copy application source code
 COPY src src
+RUN mvn clean package -DskipTests -B
 
-# Build the application JAR (skip tests — tests run in CI stage separately)
-RUN ./mvnw clean package -DskipTests -B
+# Runtime stage: minimal Java 17 DHI, nonroot by default
+FROM dhi.io/eclipse-temurin:17-alpine3.24 AS runtime
 
-# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
-FROM eclipse-temurin:17-jre-alpine AS runtime
-
-LABEL maintainer="Prithviraj Abnave <prithviraj.abnave@roms.dev>"
-LABEL description="ROMS Spring Boot Application — Runtime Image"
-LABEL version="1.0.0"
-
-# Create a non-root user for security best practices
-RUN addgroup -S roms && adduser -S roms -G roms
+LABEL org.opencontainers.image.title="ROMS Spring Boot Application"
+LABEL org.opencontainers.image.description="Restaurant Order Management System runtime image"
+LABEL org.opencontainers.image.version="1.0.0"
 
 WORKDIR /app
+COPY --from=builder --chown=65532:65532 /build/target/restaurant-order-management-system-0.0.1-SNAPSHOT.jar /app/app.jar
+COPY --from=builder --chown=65532:65532 /build/target/classes/com/roms/ContainerHealthCheck.class /app/classes/com/roms/ContainerHealthCheck.class
 
-# Copy the packaged JAR from the builder stage
-COPY --from=builder /build/target/restaurant-order-management-system-0.0.1-SNAPSHOT.jar app.jar
-
-# Set ownership
-RUN chown roms:roms app.jar
-
-# Switch to non-root user
-USER roms
-
-# Expose the application port
 EXPOSE 8081
 
-# Health check — ensures the container signals readiness
-HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8081/actuator/health || exit 1
+# DHI runtime images do not provide a shell; JAVA_TOOL_OPTIONS is consumed directly by the JVM.
+ENV JAVA_TOOL_OPTIONS="-Xms256m -Xmx512m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
 
-# JVM tuning for containerized environments
-ENV JAVA_OPTS="-Xms256m -Xmx512m -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
-
-# Entrypoint — runs the Spring Boot application
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
